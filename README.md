@@ -11,7 +11,7 @@
 
 ## 📖 Introduction
 
-This repository contains the official PyTorch implementation of the **HCGNN-DKC** model.
+This repository contains the PyTorch implementation of the **HCGNN-DKC** model.
 
 **HCGNN-DKC** is a neuro-symbolic framework designed to address the "black box" nature of deep learning in urban planning. It integrates three key domain knowledge components into the learning process:
 1.  **Ontological Constraints:** Structuring the hierarchical scope of urban indicators.
