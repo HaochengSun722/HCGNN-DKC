@@ -99,6 +99,6 @@ All constraints are explicitly defined in `constraints.py`.
 
 ## 🙏 Acknowledgements
 
-*   We thank the **DomiKnowS** team for their open-source neuro-symbolic framework.
-*   We acknowledge **Gurobi Optimization** for providing the academic license.
+*   We thank the **[HLR Lab](https://hlr.github.io/)** team for their open-source [DomiKnowS](https://github.com/HLR/DomiKnowS) framework.
+*   We acknowledge **[Gurobi Optimization](https://www.gurobi.com/)** for providing the academic license.
 
