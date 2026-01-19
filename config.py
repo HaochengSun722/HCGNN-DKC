@@ -28,15 +28,12 @@ NUM_CLASSES_DICT = {
 }
 
 DAG_EDGES = [
-    ('BLA', 'BLP'), ('MABH', 'DHBH'), ('BN', 'BD'),
-    ('SLR', 'HBFR'), ('SLR', 'RBS'), ('SLR', 'FAR'),
-    ('BD', 'ABF'), ('BD', 'CL'), ('FAR', 'BLA'),
-    ('FAR', 'HBN'), ('FAR', 'BN'), ('FAR', 'AHBH'), ('FAR', 'BD'),
-    ('FAR', 'DHBH'), ('ABH', 'DHBH'), ('LU', 'BLA'), ('LU', 'BN'),
-    ('LU', 'FAR'), ('LU', 'CL'), ('LU', 'RBS'),
-    ('CL', 'RBS'), ('CL', 'HBFR'), ('BL', 'FAR'), ('BL', 'DHBH'),
-    ('SBLU', 'LU'), ('BL', 'MABH'), ('LU', 'ABF'), ('FAR', 'ABH'),
-    ('BL', 'SBLU'), ('BL', 'HBN')
+    ('BL', 'SBLU'), ('BL', 'SLR'), ('BL', 'LU'), ('SBLU', 'LU'), 
+    ('BL', 'BD'), ('LU', 'BLA'), ('LU', 'BLP'), ('LU', 'BN'), 
+    ('LU', 'ABF'), ('LU', 'CL'), ('SLR', 'CL'), ('SLR', 'RBS'), 
+    ('BD', 'FAR'), ('BL', 'FAR'), ('BN', 'HBN'), ('BN', 'DHBH'), 
+    ('ABF', 'DHBH'), ('CL', 'HBFR'), ('RBS', 'HBFR'), ('BLA', 'FAR'), 
+    ('FAR', 'MABH'), ('FAR', 'ABH'), ('FAR', 'AHBH'), ('BN', 'FAR'), ('BD', 'CL'), ('BLP', 'HBFR')
 ]
 
 # TRAIN
