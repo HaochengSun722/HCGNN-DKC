@@ -153,57 +153,56 @@ class CausalAwareGNN(nn.Module):
     
 class OptimizedHierarchicalCausalGNN(nn.Module):
     def __init__(self, input_dim, hidden_dim, use_dag=True, dag_edges=None, 
-                 target_variable=None, hierarchy_vars=None, all_variables=None):
+                 target_variable=None, hierarchy_vars=None, all_variables=None,
+                 reverse_weight=0.5, norm_type='left', ablation_flags=None): # 新增参数
         super().__init__()
         self.use_dag = use_dag
         self.target_variable = target_variable
-        self.hierarchy_vars = hierarchy_vars or []
+        self.hierarchy_vars = hierarchy_vars or[]
         self.all_variables = all_variables or ALL_VARIABLES
+        self.reverse_weight = reverse_weight
+        self.norm_type = norm_type
+        self.ablation = ablation_flags or {}
         
         self.var_map = {v: i for i, v in enumerate(self.all_variables)}
         self.target_idx = self.var_map.get(target_variable, 0)
         
-        # Constructing an optimized adjacency matrix based on DAG and hierarchical variables
         self.adj = self._build_optimized_adjacency(dag_edges, hierarchy_vars)
         
-        # Input encodes
-        self.input_encoders = nn.ModuleDict({
-            var: nn.Sequential(
+        if self.ablation.get('wo_mlp', False):
+            shared_mlp = nn.Sequential(
                 nn.Linear(input_dim, hidden_dim),
                 nn.ReLU(),
                 nn.LayerNorm(hidden_dim)
-            ) for var in self.all_variables
-        })
+            )
+            self.input_encoders = nn.ModuleDict({var: shared_mlp for var in self.all_variables})
+        else:
+            self.input_encoders = nn.ModuleDict({
+                var: nn.Sequential(
+                    nn.Linear(input_dim, hidden_dim),
+                    nn.ReLU(),
+                    nn.LayerNorm(hidden_dim)
+                ) for var in self.all_variables
+            })
         
-        # GCN layers
         self.gcn_layers = nn.ModuleList([
-            gnn.GCNConv(hidden_dim, hidden_dim),
-            gnn.GCNConv(hidden_dim, hidden_dim),
-            gnn.GCNConv(hidden_dim, hidden_dim)
+            gnn.GCNConv(hidden_dim, hidden_dim, normalize=False, add_self_loops=False),
+            gnn.GCNConv(hidden_dim, hidden_dim, normalize=False, add_self_loops=False),
+            gnn.GCNConv(hidden_dim, hidden_dim, normalize=False, add_self_loops=False)
         ])
         
         self.attention = nn.MultiheadAttention(hidden_dim, num_heads=4, batch_first=True)
-        self.residual_mlp = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(0.1)
-        )
+        self.residual_mlp = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.ReLU(), nn.Dropout(0.1))
         
-        # Classifier
-        if target_variable in NUM_CLASSES_DICT:
-            output_dim = NUM_CLASSES_DICT[target_variable]
-        else:
-            output_dim = 10
-            
+        output_dim = NUM_CLASSES_DICT.get(target_variable, 10)
         self.classifier = nn.Sequential(
-            nn.Linear(hidden_dim * 2, hidden_dim),
+            nn.Linear(hidden_dim * 2 if not self.ablation.get('wo_attention', False) else hidden_dim, hidden_dim),
             nn.ReLU(),
             nn.Dropout(0.2),
             nn.Linear(hidden_dim, hidden_dim // 2),
             nn.ReLU(),
             nn.Linear(hidden_dim // 2, output_dim)
         )
-        
         self._initialize_weights()
 
     def _initialize_weights(self):
@@ -234,74 +233,76 @@ class OptimizedHierarchicalCausalGNN(nn.Module):
         if dag_edges and self.use_dag:
             for u, v in dag_edges:
                 if u in self.var_map and v in self.var_map:
-                    u_idx, v_idx = self.var_map[u], self.var_map[v]
-                    adj[u_idx, v_idx] = 1.0
-                    adj[v_idx, u_idx] = 0.5
+                    adj[self.var_map[u], self.var_map[v]] = 1.0
+                    adj[self.var_map[v], self.var_map[u]] = self.reverse_weight 
             
-            # Strengthen the connections between hierarchical variables
-            hierarchy_indices = [self.var_map[var] for var in hierarchy_vars if var in self.var_map]
-            for i in hierarchy_indices:
-                for j in hierarchy_indices:
-                    if i != j:
-                        if adj[i, j] == 0 and adj[j, i] == 0:
-                            adj[i, j] = adj[j, i] = 0.8
-                        else:
-                            adj[i, j] = adj[j, i] = torch.max(adj[i, j], adj[j, i]) * 1.2
-            
-            # Special emphasis is placed on strengthening the connection between the target variable and the hierarchical variables.
-            if self.target_variable in self.var_map:
-                target_idx = self.var_map[self.target_variable]
-                for var_idx in hierarchy_indices:
-                    if var_idx != target_idx:
-                        adj[target_idx, var_idx] = adj[var_idx, target_idx] = 1.0
+            if not self.ablation.get('wo_ontology', False):
+                hierarchy_indices = [self.var_map[var] for var in hierarchy_vars if var in self.var_map]
+                if self.target_variable in self.var_map:
+                    target_idx = self.var_map[self.target_variable]
+                    for var_idx in hierarchy_indices:
+                        if var_idx != target_idx:
+                            adj[target_idx, var_idx] = 1.0 # Topological shortcuts
         else:
-            adj = torch.ones(n_vars, n_vars) * 0.5
-            for i in range(n_vars):
-                adj[i, i] = 1.0
+            adj = torch.ones(n_vars, n_vars) * self.reverse_weight
+
+        for i in range(n_vars):
+            adj[i, i] = 1.0 
+            
+        adj = torch.clamp(adj, 0.0, 1.0)
         
-        adj = torch.clamp(adj, 0.1, 1.0)
-        return adj
+        if self.norm_type == 'left':        # D^-1 * A 
+            row_sum = adj.sum(dim=1, keepdim=True)
+            adj_normalized = adj / (row_sum + 1e-8)
+        elif self.norm_type == 'right':     # A * D^-1 
+            col_sum = adj.sum(dim=0, keepdim=True)
+            adj_normalized = adj / (col_sum + 1e-8)
+        elif self.norm_type == 'symmetric': # D^-1/2 * A * D^-1/2 
+            row_sum = adj.sum(dim=1)
+            d_inv_sqrt = torch.pow(row_sum, -0.5)
+            d_inv_sqrt[torch.isinf(d_inv_sqrt)] = 0.0
+            adj_normalized = d_inv_sqrt.unsqueeze(1) * adj * d_inv_sqrt.unsqueeze(0)
+        else:
+            adj_normalized = adj
+            
+        return adj_normalized
     
     def forward(self, batch_data):
         try:
             B = self._get_batch_size(batch_data)
-            device = next(self.parameters()).device  
-            
+            device = next(self.parameters()).device
             adj = self.adj.to(device)
             
-            encoded_features = []
-            for var_name in self.all_variables:
-                feature = self._get_variable_feature(batch_data, var_name, B, device)
-                enc = self.input_encoders[var_name](feature)
-                encoded_features.append(enc)
-            
-            x = torch.stack(encoded_features, dim=1)  # [B, N_vars, H]
-            
+            encoded_features = [self.input_encoders[v](self._get_variable_feature(batch_data, v, B, device)) for v in self.all_variables]
+            x = torch.stack(encoded_features, dim=1) 
             x_flat = x.reshape(B * len(self.all_variables), -1)
-            edge_index = self._build_batch_edge_index(B, device, adj)
             
-            x1 = torch.relu(self.gcn_layers[0](x_flat, edge_index))
-            x2 = torch.relu(self.gcn_layers[1](x1, edge_index))
-            x3 = torch.relu(self.gcn_layers[2](x2, edge_index))
+            edge_index, edge_weight = self._build_batch_edge_index(B, device, adj)
             
-            x_final = x3 + self.residual_mlp(x1)
+            x1 = torch.relu(self.gcn_layers[0](x_flat, edge_index, edge_weight))
+            x2 = torch.relu(self.gcn_layers[1](x1, edge_index, edge_weight))
+            x3 = torch.relu(self.gcn_layers[2](x2, edge_index, edge_weight))
+            
+            if self.ablation.get('wo_residual', False):
+                x_final = x3
+            else:
+                x_final = x3 + self.residual_mlp(x1)
+                
             x = x_final.view(B, len(self.all_variables), -1)
-            
             target_feature = x[:, self.target_idx:self.target_idx+1]
-            attended_features, attention_weights = self.attention(
-                target_feature, x, x
-            )
             
-            target_encoded = x[:, self.target_idx]
-            context_encoded = attended_features.squeeze(1)
-            combined_features = torch.cat([target_encoded, context_encoded], dim=1)
-            
-            logits = self.classifier(combined_features)
-            return logits
-            
+            if self.ablation.get('wo_attention', False):
+                combined_features = x[:, self.target_idx] 
+            else:
+                attended_features, attention_weights = self.attention(target_feature, x, x)
+                self.last_attention_weights = attention_weights.detach().cpu()
+                context_encoded = attended_features.squeeze(1)
+                target_encoded = x[:, self.target_idx]
+                combined_features = torch.cat([target_encoded, context_encoded], dim=1)
+                
+            return self.classifier(combined_features)
         except Exception as e:
-            print(f"❌ {self.target_variable} : {e}")
-            return self._create_safe_logits(B if 'B' in locals() else 1, device)
+            return self._create_safe_logits(1, next(self.parameters()).device)
     
     def _get_batch_size(self, batch_data):
         if not batch_data:
@@ -329,11 +330,19 @@ class OptimizedHierarchicalCausalGNN(nn.Module):
             return torch.randn(batch_size, 1, device=device) * 0.01
     
     def _build_batch_edge_index(self, batch_size, device, adj):
-        edge_index = adj.nonzero(as_tuple=False).t().contiguous()
+        nonzero_indices = adj.nonzero(as_tuple=False)
+        
+        edge_weights = adj[nonzero_indices[:, 0], nonzero_indices[:, 1]]
+        
+        edge_index = nonzero_indices.t().contiguous()
+        
         edge_index = edge_index.repeat(1, batch_size)
+        edge_weights = edge_weights.repeat(batch_size)
+        
         offset = torch.arange(batch_size, device=device) * len(self.all_variables)
         edge_index = edge_index.view(2, batch_size, -1) + offset.view(1, batch_size, 1)
-        return edge_index.view(2, -1)
+        
+        return edge_index.view(2, -1), edge_weights.to(device)
     
     def _create_safe_logits(self, batch_size, device):
         if self.target_variable in NUM_CLASSES_DICT:

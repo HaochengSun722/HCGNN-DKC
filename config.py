@@ -11,6 +11,7 @@ torch.manual_seed(SEED)
 
 # ---------- PATH ----------
 DATA_ROOT = Path('data')
+#CSV_FILE_PATH = DATA_ROOT / 'train_data_label.csv' 
 CSV_FILE_PATH = DATA_ROOT / '1061samples_int.csv'
 
 # ---------- VARIABLES ----------
@@ -28,17 +29,20 @@ NUM_CLASSES_DICT = {
 }
 
 DAG_EDGES = [
-    ('BL', 'SBLU'), ('BL', 'SLR'), ('BL', 'LU'), ('SBLU', 'LU'), 
-    ('BL', 'BD'), ('LU', 'BLA'), ('LU', 'BLP'), ('LU', 'BN'), 
-    ('LU', 'ABF'), ('LU', 'CL'), ('SLR', 'CL'), ('SLR', 'RBS'), 
-    ('BD', 'FAR'), ('BL', 'FAR'), ('BN', 'HBN'), ('BN', 'DHBH'), 
-    ('ABF', 'DHBH'), ('CL', 'HBFR'), ('RBS', 'HBFR'), ('BLA', 'FAR'), 
-    ('FAR', 'MABH'), ('FAR', 'ABH'), ('FAR', 'AHBH'), ('BN', 'FAR'), ('BD', 'CL'), ('BLP', 'HBFR')
+    ('BLA', 'BLP'), ('MABH', 'DHBH'), ('BN', 'BD'),
+    ('SLR', 'HBFR'), ('SLR', 'RBS'), ('SLR', 'FAR'),
+    ('BD', 'ABF'), ('BD', 'CL'), ('FAR', 'BLA'),
+    ('FAR', 'HBN'), ('FAR', 'BN'), ('FAR', 'AHBH'), ('FAR', 'BD'),
+    ('FAR', 'DHBH'), ('ABH', 'DHBH'), ('LU', 'BLA'), ('LU', 'BN'),
+    ('LU', 'FAR'), ('LU', 'CL'), ('LU', 'RBS'),
+    ('CL', 'RBS'), ('CL', 'HBFR'), ('BL', 'FAR'), ('BL', 'DHBH'),
+    ('SBLU', 'LU'), ('BL', 'MABH'), ('LU', 'ABF'), ('FAR', 'ABH'),
+    ('BL', 'SBLU'), ('BL', 'HBN')
 ]
 
 # TRAIN
 BATCH_SIZE = 32
-EPOCHS = 200
+EPOCHS = 100
 HIDDEN_DIM = 128
 LEARNING_RATE = 1e-3
 WEIGHT_DECAY    = 1e-5
@@ -62,10 +66,16 @@ EXPERIMENT_CASES = [
     ,'case4_pure_gnn'
 ]
 
+BEST_HCGNN_KWARGS = {
+    'reverse_weight': 0.5,    
+    'norm_type': 'right',    
+    'beta': 0.3  
+}
+
 # DEFALUT CONFIG
 PROGRAM_CONFIGS = {
     'case1_rules_pure_gnn': {
-        'program_type': 'iml',
+        'program_type': 'primal_dual', 
         'inferTypes': ['ILP', 'local/softmax']
     },
     'case2_dag_causal_gnn': {
@@ -73,8 +83,9 @@ PROGRAM_CONFIGS = {
         'inferTypes': ['local/softmax']
     },
     'case3_rules_dag_causal_gnn': {
-        'program_type': 'iml',
-        'inferTypes': ['ILP', 'local/softmax']
+        'program_type': 'primal_dual', 
+        'inferTypes': ['ILP', 'local/softmax'],
+        'model_kwargs': BEST_HCGNN_KWARGS
     },
     'case4_pure_gnn': {
         'program_type': 'base',

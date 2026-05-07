@@ -5,7 +5,6 @@ from domiknows.graph.logicalConstrain import (
 
 # ---------- 1. SENMANTIC DISCTRTISATION ----------
 def _concept_groups(graph):
-    """返回分组字典"""
     bl   = graph['BL']; lu   = graph['LU']; mabh = graph['MABH']; far  = graph['FAR']
     bd   = graph['BD']; abf  = graph['ABF']; cl   = graph['CL']; rbs  = graph['RBS']
     hbn  = graph['HBN']; bla  = graph['BLA']; abh = graph['ABH']; hbfr = graph['HBFR']
